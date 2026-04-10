@@ -1,0 +1,83 @@
+#!/bin/bash
+
+# ── CONFIGURATION ──────────────────────────────────────────────────
+LOG_FILE="ollama_log.txt"
+
+# ── APPENDING TO THE LOG FILE CLEANLY ─────────────────────────────
+log_response() {
+    local response="$1"
+    local timestamp
+    timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+
+    # Appends each entry to the file using >> (never overwrites)
+    {
+        echo "========================================"
+        echo "Timestamp: $timestamp"
+        echo "----------------------------------------"
+        echo "$response"
+        echo "========================================"
+        echo ""          # blank line between entries for breathing room
+    } >> "$LOG_FILE"     # << this is the clean append
+}
+
+# ── ERROR HANDLING ─────────────────────────────────────────────────
+log_error() {
+    local error_type="$1"
+    local timestamp
+    timestamp=$(date "+%Y-%m-%d %H:%M:%S")
+
+    {
+        echo "========================================"
+        echo "Timestamp: $timestamp"
+        echo "----------------------------------------"
+
+        # Different messages depending on what went wrong
+        case "$error_type" in
+            "no_frame")
+                echo "ERROR: Camera missed a frame — no image captured"
+                ;;
+            "ollama_fail")
+                echo "ERROR: Ollama failed to respond — model may be offline"
+                ;;
+            "empty_response")
+                echo "ERROR: Ollama returned an empty response"
+                ;;
+            *)
+                echo "ERROR: Unknown error occurred"
+                ;;
+        esac
+
+        echo "========================================"
+        echo ""
+    } >> "$LOG_FILE"
+}
+
+# ── MAIN LOGIC — ties it all together ──────────────────────────────
+run_and_log() {
+    # Step 1: Try to capture image from camera
+    IMAGE=$(imagesnap -q /tmp/frame.jpg 2>&1)
+    if [ ! -f /tmp/frame.jpg ]; then
+        log_error "no_frame"
+        return
+    fi
+
+    # Step 2: Send to Ollama and capture response
+    RESPONSE=$(ollama run llava "describe this image" --image /tmp/frame.jpg 2>&1)
+
+    # Step 3: Check if Ollama failed or returned nothing
+    if [ $? -ne 0 ]; then
+        log_error "ollama_fail"
+        return
+    fi
+
+    if [ -z "$RESPONSE" ]; then
+        log_error "empty_response"
+        return
+    fi
+
+    # Step 4: All good — log the real response
+    log_response "$RESPONSE"
+}
+
+# ── RUN ────────────────────────────────────────────────────────────
+run_and_log
